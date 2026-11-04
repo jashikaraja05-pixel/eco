@@ -129,7 +129,7 @@ function App() {
           {tab === "learn" && <Learn />}
         </div>
       </main>
-      <ScanDetail scan={viewing} onClose={() => setViewing(null)} />
+      <ScanDetail scan={viewing} onClose={() => setViewing(null)} onVerified={(s) => { setViewing(s); setHistory((h) => h.map((x) => (x.id === s.id ? s : x))); }} />
       <AlertDialog open={!!confirm} onOpenChange={(o) => { if (!o && !confirmBusy) setConfirm(null); }}>
         <AlertDialogContent className="w-[calc(100%-2rem)] max-w-md rounded-2xl">
           <AlertDialogHeader>
