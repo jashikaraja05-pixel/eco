@@ -140,6 +140,42 @@ MAPPING_TABLES = {
     "merged": MERGED_MAPPING,
 }
 
+# Declared licence metadata per dataset SOURCE (recorded in split.json so a
+# checkpoint can be traced back to its inputs). These are the licences each
+# source publishes, not a redistribution grant; see ATTRIBUTION.md.
+DATASET_LICENCES = {
+    "trashnet": "MIT (c) 2017 Gary Thung — github.com/garythung/trashnet/LICENSE",
+    "garbage12": (
+        "ODbL 1.0 — Database: Open Database; Contents: © Original Authors — "
+        "kaggle.com/datasets/mostafaabla/garbage-classification"
+    ),
+    "giz_ewaste": (
+        "CC BY 4.0 (declared on the dataset card) — "
+        "huggingface.co/datasets/GIZ/e-waste-dataset-yolo-labels — attribution "
+        "wording and third-party image rights unconfirmed, see ATTRIBUTION.md"
+    ),
+}
+DATASET_LICENCE_ORDER = ("trashnet", "garbage12", "giz_ewaste")
+
+
+def dataset_licences(folder_by_class: dict[str, Path],
+                     mapping: dict[str, str]) -> dict[str, str]:
+    """Licences of the sources that actually contributed an output class.
+
+    A dataset is recorded only when at least one of its own class folders is
+    present, so a TrashNet-only run never claims garbage12 or GIZ images. The
+    "e-waste" class is the GIZ contribution (garbage12 has no e-waste folder).
+    """
+    used: set[str] = set()
+    if any(c in folder_by_class for c in TRASHNET_MAPPING):
+        used.add("trashnet")
+    if any(c in folder_by_class for c in GARBAGE12_MAPPING if c != "e-waste"):
+        used.add("garbage12")
+    if "e-waste" in folder_by_class:
+        used.add("giz_ewaste")
+    return {name: DATASET_LICENCES[name] for name in DATASET_LICENCE_ORDER if name in used}
+
+
 # Explicit synonyms that case/separator normalization cannot reach: canonical
 # mapping key -> accepted alternative folder spellings. An alias only renames a
 # folder to a class that already exists in the active table; it never invents a
