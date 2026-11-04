@@ -31,9 +31,14 @@ IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 
 
-def build_model(num_classes: int) -> nn.Module:
-    """MobileNetV3-Small with ImageNet-pretrained backbone, new 6+ class head."""
-    model = models.mobilenet_v3_small(weights=models.MobileNet_V3_Small_Weights.IMAGENET1K_V1)
+def build_model(num_classes: int, pretrained: bool = True) -> nn.Module:
+    """MobileNetV3-Small with a new class head.
+
+    pretrained=True downloads ImageNet weights (training only). Inference uses
+    pretrained=False and loads the saved checkpoint, so no network is needed.
+    """
+    weights = models.MobileNet_V3_Small_Weights.IMAGENET1K_V1 if pretrained else None
+    model = models.mobilenet_v3_small(weights=weights)
     in_features = model.classifier[3].in_features
     model.classifier[3] = nn.Linear(in_features, num_classes)
     return model
@@ -46,7 +51,7 @@ def load_model(models_dir: Path | str = DEFAULT_MODELS_DIR) -> tuple[nn.Module, 
     weights_path = models_dir / WEIGHTS_NAME
     if not weights_path.exists():
         raise FileNotFoundError(f"No trained weights at {weights_path} — run train.py first.")
-    model = build_model(int(config["num_classes"]))
+    model = build_model(int(config["num_classes"]), pretrained=False)
     model.load_state_dict(torch.load(weights_path, map_location="cpu", weights_only=True))
     model.eval()
     return model, config

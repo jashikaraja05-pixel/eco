@@ -154,6 +154,7 @@ def build_split(images_dir: Path, mapping: dict[str, str], out_dir: Path) -> Pat
         "seed": SEED,
         "counts": {s: {c: sum(1 for r in rows if r["dataset_class"] == c) for c in sorted(mapping)} for s, rows in split.items()},
         "sizes": {s: len(rows) for s, rows in split.items()},
+        **split,  # the actual per-image rows used by train.py / evaluate.py
         "licences": {
             "trashnet": "MIT (c) 2017 Gary Thung — github.com/garythung/trashnet/LICENSE",
             "garbage12": "See kaggle.com/datasets/mostafaabla/garbage-classification before redistribution",
