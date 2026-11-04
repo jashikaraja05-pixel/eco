@@ -98,11 +98,13 @@ def check_category_coverage(class_to_category: Mapping[str, str],
     """Returns {missing category: [required dataset classes]}; raises unless partial is allowed."""
     tables = tuple(mapping_tables)
     covered = set(class_to_category.values())
-    missing = {
-        category: required_dataset_classes(category, tables)
-        for category in APP_CATEGORIES
-        if category not in covered
-    }
+    missing = {}
+    for category in APP_CATEGORIES:
+        if category in covered:
+            continue
+        # If the active mapping never targets this category (e.g. trashnet has no
+        # organic folder), still tell the user which dataset class would supply it.
+        missing[category] = required_dataset_classes(category, tables) or list(DEFAULT_SOURCE_CLASSES.get(category, []))
     if missing and not allow_partial:
         raise DatasetCoverageError(missing, found_classes=sorted(class_to_category))
     return missing
