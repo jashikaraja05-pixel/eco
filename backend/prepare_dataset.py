@@ -16,39 +16,54 @@ needs, unless --allow-partial explicitly opts into reduced coverage.
 
 Datasets
 --------
+No dataset is bundled with this repository, and no checkpoint is committed: the
+licences below are the DECLARED metadata of each source, not a redistribution
+grant. See ATTRIBUTION.md at the repository root for the attribution record and
+the questions that are still unanswered.
+
 1. trashnet (default) — Gary Thung & Mindy Yang, https://github.com/garythung/trashnet
    MIT License (verified in the repo's LICENSE file, Copyright (c) 2017 Gary Thung).
    2,527 images, 6 classes: cardboard, glass, metal, paper, plastic, trash.
 
-2. garbage12 + GIZ e-waste (used for the shipped model) — the 12-class Kaggle
-   set below has no e-waste folder, so an "e-waste" folder must be added from
-   GIZ/E-Waste-Database on Hugging Face (CC BY 4.0, every image is e-waste).
-   Run with --source dir on the merged folder.
+2. garbage12 — Kaggle "Garbage Classification (12 classes)" by mostafaabla,
+   https://www.kaggle.com/datasets/mostafaabla/garbage-classification
+   15,150 images, 12 classes: battery, biological, brown-glass, cardboard,
+   clothes, green-glass, metal, paper, plastic, shoes, trash, white-glass.
+   Licence: ODbL 1.0 — Database: Open Database; Contents: © Original Authors.
+   There is NO e-waste folder in this set, so it alone cannot cover the app's
+   e-waste category. Use `--kaggle` after `pip install kaggle` and accepting the
+   dataset's terms in your Kaggle account.
 
-   A directory may also mix TrashNet and garbage12 folder names: MERGED_MAPPING
-   is the union of both tables, so a merged tree that still contains TrashNet's
+3. giz_ewaste — GIZ e-waste dataset with YOLO box labels,
+   https://huggingface.co/datasets/GIZ/e-waste-dataset-yolo-labels
+   Declared licence metadata: CC BY 4.0. Attribution wording and the
+   third-party image rights behind the individual photos are NOT confirmed yet;
+   do not redistribute the images before checking them (ATTRIBUTION.md).
+   This source is box-labelled (many object classes per image) while the
+   classifier consumes image-level folders, so each accepted image is copied
+   once into an "e-waste" folder; boxes are never cropped.
+
+   A directory may mix TrashNet and garbage12 folder names: MERGED_MAPPING is
+   the union of both tables, so a merged tree that still contains TrashNet's
    single "glass" folder (next to brown-/green-/white-glass) is recognised and
    "glass" maps to the same "recyclable" category. Folder names are matched
    through a declared normalization (case and separator insensitive, e.g.
    "E-Waste" -> "e-waste"), never by guessing: a folder whose normalized name is
    not a mapping key is left out of the output classes and reported.
 
-   garbage12 — Kaggle "Garbage Classification (12 classes)" by mostafaabla,
-   https://www.kaggle.com/datasets/mostafaabla/garbage-classification
-   15,150 images, 12 classes. Verify the licence on the Kaggle page before any
-   redistribution; use `--kaggle` after `pip install kaggle` and accepting the
-   dataset's terms in your Kaggle account.
-
 Limitations (documented, not hidden)
 ------------------------------------
 - trashnet contains NO organic, hazardous or e-waste images: a model trained
   only on it can genuinely predict recyclable and residual items only, so it
   requires --allow-partial (the manifest then records partial_training=true).
-- garbage12 covers biological (organic), battery (hazardous) and e-waste, but
-  "hazardous" is represented by batteries alone and "uncertain" is never a
-  dataset class — it is produced only by the confidence threshold.
-- Photos in these datasets are studio-like, not real bin photos: expect an
-  accuracy drop on real-world images. Report this in the demo.
+- garbage12 covers biological (organic) and battery (hazardous), but not
+  e-waste: the e-waste category needs the GIZ folder described above, and
+  "hazardous" is represented by batteries alone.
+- "uncertain" is never a dataset class — it is produced only by the confidence
+  threshold.
+- Photos in these datasets are studio-like (and the GIZ ones are box-labelled
+  scenes), not real bin photos: expect an accuracy drop on real-world images.
+  Report this in the demo.
 
 Usage
 -----
