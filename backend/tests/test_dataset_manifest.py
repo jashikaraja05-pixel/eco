@@ -293,3 +293,104 @@ def test_seed_everything_reports_and_reproduces():
     a = np.random.rand(3).tolist()
     seed_everything(99)
     assert np.random.rand(3).tolist() == a
+
+
+# --- TASK 2A: merged TrashNet + garbage12 folder names -----------------------
+
+def test_merged_mapping_preserves_every_category():
+    """MERGED_MAPPING is a union: no key or category may change."""
+    for table in (TRASHNET_MAPPING, GARBAGE12_MAPPING):
+        for name, category in table.items():
+            assert MERGED_MAPPING[name] == category
+    assert set(MERGED_MAPPING) == set(TRASHNET_MAPPING) | set(GARBAGE12_MAPPING)
+    assert set(MERGED_MAPPING.values()) == set(TRASHNET_MAPPING.values()) | set(GARBAGE12_MAPPING.values())
+    # the previously-colliding key: TrashNet's single glass folder stays recyclable
+    assert MERGED_MAPPING["glass"] == "recyclable"
+    for name in ("brown-glass", "green-glass", "white-glass"):
+        assert MERGED_MAPPING[name] == "recyclable"
+
+
+def test_normalization_is_case_and_separator_insensitive():
+    assert normalize_class_name("E-Waste") == normalize_class_name("e_waste") == normalize_class_name("e-waste")
+    assert normalize_class_name(" Brown Glass ") == normalize_class_name("brown-glass")
+    # normalization must not merge two genuinely different classes
+    assert normalize_class_name("glass") != normalize_class_name("brown-glass")
+
+
+def test_merged_thirteen_folder_tree_is_recognised(tmp_path):
+    """A merged 13-folder tree (12 garbage12 + TrashNet's glass + e-waste)."""
+    root = tmp_path / "dataset"
+    for name in MERGED_MAPPING:
+        make_class_dir(root, name, 12)
+
+    resolved_dir, mapping = class_folders(root)
+
+    assert resolved_dir == root and mapping is MERGED_MAPPING
+    folder_by_class, unrecognized, ambiguous = resolve_folders(root, mapping)
+    assert unrecognized == [] and ambiguous == []
+    # 14 folders on disk, 14 distinct model classes: "glass" is NOT folded into
+    # brown-/green-/white-glass, so its images keep their own output neuron.
+    assert len([p for p in root.iterdir() if p.is_dir()]) == len(MERGED_MAPPING)
+    assert set(folder_by_class) == set(MERGED_MAPPING)
+    assert folder_by_class["glass"].name == "glass"
+    manifest_classes = json.loads(
+        build_split(root, mapping, tmp_path / "out", allow_partial=True).read_text()
+    )
+    assert len(manifest_classes["classes"]) == len(MERGED_MAPPING)
+    assert all(manifest_classes["class_to_category"][c] == "recyclable"
+               for c in ("glass", "brown-glass", "green-glass", "white-glass"))
+    assert "e-waste" in manifest_classes["classes"]
+    assert manifest_classes["class_to_category"]["e-waste"] == "ewaste"
+
+
+def test_dotted_or_spaced_folder_names_resolve_to_the_same_class(tmp_path):
+    root = tmp_path / "dataset"
+    make_class_dir(root, "E-Waste", 12)
+    make_class_dir(root, "Brown Glass", 12)
+    make_class_dir(root, "biological", 12)
+
+    folder_by_class, unrecognized, ambiguous = resolve_folders(root, MERGED_MAPPING)
+    assert unrecognized == [] and ambiguous == []
+    assert folder_by_class["e-waste"].name == "E-Waste"
+    assert folder_by_class["brown-glass"].name == "Brown Glass"
+
+
+def test_unknown_folder_is_never_silently_classified(tmp_path):
+    root = tmp_path / "dataset"
+    for name in ("biological", "cardboard", "e-waste"):
+        make_class_dir(root, name, 12)
+    make_class_dir(root, "asbestos", 12)  # not in any mapping or alias table
+
+    folder_by_class, unrecognized, ambiguous = resolve_folders(root, MERGED_MAPPING)
+    assert unrecognized == ["asbestos"]
+    assert "asbestos" not in folder_by_class
+    assert set(folder_by_class.values()) == {root / "biological", root / "cardboard", root / "e-waste"}
+
+    with pytest.raises(SystemExit) as excinfo:
+        class_folders(root)
+    assert "asbestos" in str(excinfo.value)
+
+
+def test_unrecognized_folder_is_skipped_and_reported_in_the_manifest(tmp_path):
+    root = tmp_path / "dataset"
+    for name in ("biological", "cardboard", "e-waste", "trash"):
+        make_class_dir(root, name, 12)
+    make_class_dir(root, "asbestos", 12)
+
+    manifest = json.loads(
+        build_split(root, MERGED_MAPPING, tmp_path / "out", allow_partial=True).read_text()
+    )
+    assert "asbestos" not in manifest["classes"]
+    assert "asbestos" in manifest["skipped_folders"]
+    assert "not in the mapping/alias table" in manifest["skipped_folders"]["asbestos"]
+
+
+def test_two_folders_for_one_class_are_rejected(tmp_path):
+    """'glass' and 'Glass' would silently merge two sources — refuse instead."""
+    root = tmp_path / "dataset"
+    make_class_dir(root, "glass", 12)
+    make_class_dir(root, "Glass", 12)
+
+    with pytest.raises(SystemExit) as excinfo:
+        class_folders(root)
+    assert "Ambiguous" in str(excinfo.value)
