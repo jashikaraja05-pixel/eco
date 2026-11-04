@@ -78,6 +78,9 @@ def required_dataset_classes(category: str, mapping_tables: Iterable[Mapping[str
     return category_source_classes(mapping_tables).get(category, [])
 
 
+NO_SOURCE_HINT = "any class mapped to this category (no mapping entry exists yet)"
+
+
 def check_category_coverage(class_to_category: Mapping[str, str],
                             mapping_tables: Iterable[Mapping[str, str]] = (),
                             allow_partial: bool = False) -> dict[str, list[str]]:
