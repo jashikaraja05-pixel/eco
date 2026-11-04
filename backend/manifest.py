@@ -80,6 +80,17 @@ def required_dataset_classes(category: str, mapping_tables: Iterable[Mapping[str
 
 NO_SOURCE_HINT = "any class mapped to this category (no mapping entry exists yet)"
 
+# Canonical dataset class folders that provide each app category when the active
+# mapping table has no entry for it (e.g. trashnet maps nothing to organic). Used
+# only to make the coverage error actionable for the user.
+DEFAULT_SOURCE_CLASSES = {
+    "organic": ["biological"],
+    "hazardous": ["battery"],
+    "ewaste": ["e-waste"],
+    "recyclable": ["cardboard", "glass", "metal", "paper", "plastic"],
+    "residual": ["trash"],
+}
+
 
 def check_category_coverage(class_to_category: Mapping[str, str],
                             mapping_tables: Iterable[Mapping[str, str]] = (),
