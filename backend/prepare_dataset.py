@@ -109,7 +109,83 @@ GARBAGE12_MAPPING = {
     "trash": "residual",
 }
 
+# Union of both tables, used when one directory mixes TrashNet and garbage12
+# folder names (e.g. the merged dataset that adds "e-waste" to the 12 Kaggle
+# classes while still containing TrashNet's single "glass" folder). Every key
+# maps to the same category it has in its own table: "glass", "brown-glass",
+# "green-glass" and "white-glass" all stay "recyclable". Values are never
+# changed by merging, and no new category is introduced.
+MERGED_MAPPING = {**TRASHNET_MAPPING, **GARBAGE12_MAPPING}
+
+# Mapping tables that class_folders() may pick, in preference order (the most
+# specific table wins, so a pure TrashNet tree still reports TrashNet hints).
+MAPPING_TABLES = {
+    "trashnet": TRASHNET_MAPPING,
+    "garbage12": GARBAGE12_MAPPING,
+    "merged": MERGED_MAPPING,
+}
+
+# Explicit synonyms that case/separator normalization cannot reach: canonical
+# mapping key -> accepted alternative folder spellings. An alias only renames a
+# folder to a class that already exists in the active table; it never invents a
+# class or a category. Anything else is reported as unrecognised.
+CLASS_ALIASES = {
+    "e-waste": ("electronic-waste", "electronicwaste", "e-trash"),
+    "battery": ("batteries",),
+}
+
 SEED = DEFAULT_SEED
+
+
+def normalize_class_name(name: str) -> str:
+    """Case- and separator-insensitive form of a class/folder name.
+
+    Only lowercasing and stripping of non-alphanumerics is applied, so
+    "E-Waste", "e_waste", "e waste" and "e-waste" all normalize identically.
+    Nothing else is guessed.
+    """
+    return "".join(ch for ch in name.strip().lower() if ch.isalnum())
+
+
+def build_class_index(mapping: dict[str, str]) -> dict[str, str]:
+    """normalized name -> canonical dataset class for one mapping table.
+
+    Raises SystemExit if two different keys normalize to the same name (an
+    ambiguous table would otherwise map a folder to an arbitrary class).
+    """
+    index: dict[str, str] = {}
+
+    def add(name: str, canonical: str, source: str) -> None:
+        key = normalize_class_name(name)
+        if not key:
+            raise SystemExit(f"Mapping/alias entry {name!r} ({source}) normalizes to an empty name.")
+        if key in index and index[key] != canonical:
+            raise SystemExit(
+                f"Ambiguous class name {name!r} ({source}): it resolves to both "
+                f"'{index[key]}' and '{canonical}'. Fix the mapping/alias tables."
+            )
+        index[key] = canonical
+
+    for canonical in mapping:
+        add(canonical, canonical, "mapping key")
+    for canonical, aliases in CLASS_ALIASES.items():
+        if canonical not in mapping:
+            continue  # alias for a class this table does not contain
+        for alias in aliases:
+            add(alias, canonical, f"alias of '{canonical}'")
+    return index
+
+
+def resolve_class_name(folder_name: str, mapping: dict[str, str],
+                       index: dict[str, str] | None = None) -> str | None:
+    """Canonical dataset class for a real folder name, or None if undeclared.
+
+    None means "do not classify this folder": callers must report it instead of
+    mapping it to a category by guessing.
+    """
+    index = build_class_index(mapping) if index is None else index
+    return index.get(normalize_class_name(folder_name))
+
 
 
 def export_from_hf(out_dir: Path) -> Path:
