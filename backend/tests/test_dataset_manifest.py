@@ -246,7 +246,9 @@ def test_every_split_is_non_empty_and_ordered(tmp_path):
 
 
 def test_split_counts_keep_a_training_row():
-    assert split_counts(9) == (6, 1, 2)
+    # 70/15/15 with a guaranteed row in every split.
+    assert split_counts(9) == (7, 1, 1)
+    assert split_counts(20) == (14, 3, 3)
     for n in range(3, 60):
         train, val, test = split_counts(n)
         assert train >= 1 and val >= 1 and test >= 1 and train + val + test == n
