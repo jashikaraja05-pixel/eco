@@ -1,0 +1,12 @@
+fastapi>=0.115
+uvicorn[standard]>=0.32
+httpx>=0.27
+python-multipart>=0.0.12
+pillow>=10.4
+numpy>=1.26
+torch>=2.4
+torchvision>=0.19
+scikit-learn>=1.5
+pytest>=8.3
+# dataset tooling (only needed for prepare_dataset.py --source hf)
+datasets>=3.0
