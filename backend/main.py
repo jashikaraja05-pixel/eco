@@ -15,20 +15,24 @@ No predictions are fabricated. On failure the endpoint returns an HTTP error.
 from __future__ import annotations
 
 import base64
+import hmac
 import json
 import os
 import re
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 
-from common import ALLOWED, BINS, CATEGORIES, DISPOSAL_STEPS, MAX_BYTES, UNCERTAIN_THRESHOLD, sniff
+from common import ALLOWED, BINS, CATEGORIES, DISPOSAL_STEPS, MAX_BYTES, SAFETY_WARNINGS, UNCERTAIN_THRESHOLD, sniff
 
 AI_BASE_URL = os.getenv("AI_BASE_URL", "https://ai.gateway.lovable.dev/v1").rstrip("/")
 AI_API_KEY = os.getenv("AI_API_KEY", "")
+# Shared secret required in the X-Classifier-Key header for /classify.
+CLASSIFIER_API_KEY = os.getenv("CLASSIFIER_API_KEY", "")
+ALLOW_UNAUTHENTICATED = os.getenv("ALLOW_UNAUTHENTICATED", "") == "1"  # local dev only
 AI_MODEL = os.getenv("AI_MODEL", "google/gemini-3-flash-preview")
 MODELS_DIR = Path(os.getenv("ML_MODEL_DIR", Path(__file__).parent / "models"))
 PROMPT = (
@@ -39,8 +43,20 @@ PROMPT = (
 )
 
 app = FastAPI(title="EcoLens AI Classifier", version="2.0.0")
-app.add_middleware(CORSMiddleware, allow_origins=os.getenv("CORS_ORIGINS", "*").split(","),
-                   allow_methods=["POST", "GET"], allow_headers=["*"])
+# The app calls this service server-to-server, so browsers need no CORS by default.
+CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
+if CORS_ORIGINS:
+    app.add_middleware(CORSMiddleware, allow_origins=CORS_ORIGINS,
+                       allow_methods=["POST", "GET"], allow_headers=["Content-Type", "X-Classifier-Key"])
+
+
+def require_key(provided: str | None) -> None:
+    if ALLOW_UNAUTHENTICATED and not CLASSIFIER_API_KEY:
+        return
+    if not CLASSIFIER_API_KEY:
+        raise HTTPException(503, "Service misconfigured: CLASSIFIER_API_KEY is not set.")
+    if not provided or not hmac.compare_digest(provided.encode(), CLASSIFIER_API_KEY.encode()):
+        raise HTTPException(401, "Missing or invalid X-Classifier-Key header.")
 
 # Local model is loaded lazily so the service still starts (and /health works)
 # before training has been run.
@@ -76,6 +92,8 @@ def predict_local(image_bytes: bytes, mime: str) -> dict:
         image.load()
     except Exception:
         raise HTTPException(415, "Image could not be decoded.")
+    if image.width < 32 or image.height < 32:
+        raise HTTPException(422, "Image is too small to classify (min 32x32 px).")
     from waste_model import predict_image
     p = predict_image(model, config, image)
     category = p["category"]
@@ -88,6 +106,7 @@ def predict_local(image_bytes: bytes, mime: str) -> dict:
         "reasoning": p["reasoning"],
         "steps": DISPOSAL_STEPS[category],
         "bin": BINS[category],
+        "warnings": SAFETY_WARNINGS.get(category, []),
         "engine": engine_name(),
         "latency_ms": p["_latency_ms"],
     }
@@ -132,7 +151,8 @@ def predict_gateway(image_bytes: bytes, mime: str) -> dict:
         category = "uncertain"
     return {"item": item, "category": category, "confidence": confidence,
             "reasoning": reasoning, "steps": steps or DISPOSAL_STEPS[category],
-            "bin": BINS[category], "engine": engine_name()}
+            "bin": BINS[category], "warnings": SAFETY_WARNINGS.get(category, []),
+            "engine": engine_name()}
 
 
 @app.get("/health")
@@ -146,11 +166,13 @@ def health():
     return {"status": "ok", "engine": engine_name(),
             "local_model": model is not None, "local_model_info": info,
             "gateway_fallback_configured": bool(AI_API_KEY),
+            "auth_required": not (ALLOW_UNAUTHENTICATED and not CLASSIFIER_API_KEY),
             "uncertain_threshold": UNCERTAIN_THRESHOLD}
 
 
 @app.post("/classify")
-async def classify(file: UploadFile = File(...)):
+async def classify(file: UploadFile = File(...), x_classifier_key: str | None = Header(default=None)):
+    require_key(x_classifier_key)
     data = await file.read(MAX_BYTES + 1)
     if len(data) > MAX_BYTES:
         raise HTTPException(413, "Image too large (max 6 MB).")

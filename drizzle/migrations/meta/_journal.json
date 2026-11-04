@@ -15,6 +15,13 @@
       "when": 1793775812435,
       "tag": "0001_create_scans",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793776371315,
+      "tag": "0002_scan_pilot_verification",
+      "breakpoints": true
     }
   ]
 }

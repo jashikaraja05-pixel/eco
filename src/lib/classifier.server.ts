@@ -11,14 +11,14 @@ Categories:
 confidence is your honest probability (0-100) that the category is correct.
 Reply with ONLY a JSON object: {"item": string, "category": one of the keys above, "confidence": number, "reasoning": string (max 2 sentences), "steps": string[] (3-5 disposal steps)}`;
 
-export async function viaPython(url: string, image: string): Promise<ScanResult> {
+export async function viaPython(url: string, image: string, apiKey?: string): Promise<ScanResult> {
   const [meta, b64] = image.split(",");
   const mime = meta!.slice(5, meta!.indexOf(";"));
   const bin = Uint8Array.from(atob(b64!), (c) => c.charCodeAt(0));
   const form = new FormData();
   form.append("file", new Blob([bin], { type: mime }), `scan.${mime.split("/")[1]}`);
   let res: Response;
-  try { res = await fetch(`${url.replace(/\/$/, "")}/classify`, { method: "POST", body: form }); }
+  try { res = await fetch(`${url.replace(/\/$/, "")}/classify`, { method: "POST", body: form, headers: apiKey ? { "X-Classifier-Key": apiKey } : {} }); }
   catch { throw new Error("Python classifier service is unreachable."); }
   const body = (await res.json().catch(() => null)) as { detail?: string } | null;
   if (!res.ok) throw new Error(body?.detail || `Classifier service error (${res.status}).`);
@@ -49,8 +49,8 @@ export async function viaGateway(apiKey: string, image: string): Promise<ScanRes
  * Routes to the Python service when its URL is configured, otherwise the built-in gateway.
  * No fallback: a Python failure is surfaced to the user, never silently replaced.
  */
-export async function classifyImage(image: string, env: { pythonUrl?: string | undefined; lovableApiKey?: string | undefined }): Promise<ScanResult> {
-  if (env.pythonUrl) return viaPython(env.pythonUrl, image);
+export async function classifyImage(image: string, env: { pythonUrl?: string | undefined; pythonApiKey?: string | undefined; lovableApiKey?: string | undefined }): Promise<ScanResult> {
+  if (env.pythonUrl) return viaPython(env.pythonUrl, image, env.pythonApiKey);
   if (env.lovableApiKey) return viaGateway(env.lovableApiKey, image);
   throw new Error("AI classification is not configured.");
 }

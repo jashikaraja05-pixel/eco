@@ -29,6 +29,32 @@ export const recommendedBins: Record<StoredCategory, string> = {
   uncertain: "No bin — rescan or check local rules",
 };
 
+/** Safety notes shown with every result of a category. Mirrors SAFETY_WARNINGS in backend/common.py. */
+export const safetyWarnings: Record<StoredCategory, string[]> = {
+  hazardous: [
+    "Do not open, puncture, crush or burn batteries, aerosol cans or chemical containers.",
+    "Keep away from children and food; tape battery terminals before drop-off.",
+  ],
+  ewaste: [
+    "Do not dismantle the device or remove its battery yourself.",
+    "Swollen or damaged batteries can catch fire — store them away from heat.",
+  ],
+  organic: ["Remove stickers, rubber bands and plastic before composting."],
+  recyclable: ["Broken glass: wrap it in paper and label it before binning."],
+  residual: [],
+  uncertain: ["Bin colours differ between cities — confirm with your municipal corporation's guide."],
+};
+
+/** Reuse / recycling ideas per category (static guidance, not model output). */
+export const reuseTips: Record<StoredCategory, string> = {
+  organic: "Compost at home (a pot composter works in flats) or give to your society's composting unit.",
+  recyclable: "Clean, dry dry-waste fetches value: hand it to your kabadiwala or a dry-waste collection centre.",
+  hazardous: "Use your city's household hazardous-waste drive; many retailers accept used batteries.",
+  ewaste: "Working devices can be donated; otherwise use a CPCB-authorised recycler or brand take-back.",
+  residual: "Reduce next time — choose refills or unpackaged options where possible.",
+  uncertain: "Rescan with one item, plain background and good light.",
+};
+
 /** Raw model/Python output shape (loosely validated, then normalized). */
 export const rawPredictionSchema = z.object({
   item: z.string().trim().min(1).max(150),

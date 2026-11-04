@@ -37,7 +37,7 @@ def test_waste_model_predict_contract():
         "image_size": 224,
     }
     # untrained head is fine for a contract check: shape + honest output fields
-    model = build_model(6)
+    model = build_model(6, pretrained=False)
     model.eval()
     image = Image.new("RGB", (224, 224), "green")
     p = predict_image(model, config, image)
@@ -45,3 +45,30 @@ def test_waste_model_predict_contract():
     assert 0 <= p["confidence"] <= 100
     assert p["item"] in config["idx_to_class"].values()
     assert torch.is_tensor(torch.zeros(1))
+
+
+def test_load_model_round_trip_offline(tmp_path, monkeypatch):
+    """Saved checkpoint loads without downloading pretrained weights."""
+    pytest.importorskip("torch", reason="torch not installed in this environment")
+    import json
+    import torch
+    from torchvision import models
+    from waste_model import build_model, load_model
+
+    def no_download(*a, **k):
+        raise AssertionError("inference must not download weights")
+    monkeypatch.setattr(models.MobileNet_V3_Small_Weights.IMAGENET1K_V1, "get_state_dict", no_download)
+    torch.save(build_model(3, pretrained=False).state_dict(), tmp_path / "best.pt")
+    (tmp_path / "config.json").write_text(json.dumps({"num_classes": 3}))
+    model, config = load_model(tmp_path)
+    assert config["num_classes"] == 3
+    assert not model.training
+
+
+def test_load_model_missing_weights_raises(tmp_path):
+    pytest.importorskip("torch", reason="torch not installed in this environment")
+    import json
+    from waste_model import load_model
+    (tmp_path / "config.json").write_text(json.dumps({"num_classes": 3}))
+    with pytest.raises(FileNotFoundError):
+        load_model(tmp_path)

@@ -20,8 +20,8 @@ import {
 } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { classifyWaste, deleteMyAccount } from "@/lib/classify.functions";
-import type { ScanResult, StoredCategory } from "@/lib/scan-schema";
-import { BINS, rowToScan, stats, type Scan, type ScanRow } from "@/lib/eco-store";
+import { reuseTips, safetyWarnings, type ScanResult, type StoredCategory } from "@/lib/scan-schema";
+import { BINS, rowToScan, stats, type Scan, type ScanRow, type VerifiedCategory } from "@/lib/eco-store";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -129,7 +129,7 @@ function App() {
           {tab === "learn" && <Learn />}
         </div>
       </main>
-      <ScanDetail scan={viewing} onClose={() => setViewing(null)} />
+      <ScanDetail scan={viewing} onClose={() => setViewing(null)} onVerified={(s) => { setViewing(s); setHistory((h) => h.map((x) => (x.id === s.id ? s : x))); }} />
       <AlertDialog open={!!confirm} onOpenChange={(o) => { if (!o && !confirmBusy) setConfirm(null); }}>
         <AlertDialogContent className="w-[calc(100%-2rem)] max-w-md rounded-2xl">
           <AlertDialogHeader>
@@ -587,7 +587,11 @@ function ResultCard({ r }: { r: ScanResult }) {
         <h2 className="mt-1 text-xl font-bold sm:text-2xl">{r.item}</h2>
         <p className="mt-1 text-sm font-medium text-primary">{r.bin}</p>
         {unsure && <p role="status" className="mt-3 flex gap-2 rounded-xl border border-warning/50 bg-warning-soft p-3 text-sm text-warning-foreground"><HelpCircle className="mt-0.5 size-4 shrink-0" /> The model isn't confident enough to recommend a bin. Retake the photo with one item in clear light.</p>}
-        {!unsure && r.category === "hazardous" && <p role="alert" className="mt-3 flex gap-2 rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"><AlertTriangle className="mt-0.5 size-4 shrink-0" /> Hazardous waste — never crush, burn or mix it with household waste. Take it to the red-bin depot or a hazardous-waste collection drive.</p>}
+        {safetyWarnings[r.category].length > 0 && (
+          <div role={r.category === "hazardous" || r.category === "ewaste" ? "alert" : "note"} className={`mt-3 space-y-1.5 rounded-xl border p-3 text-sm ${r.category === "hazardous" || r.category === "ewaste" ? "border-destructive/40 bg-destructive/10 text-destructive" : "border-border bg-muted text-muted-foreground"}`}>
+            {safetyWarnings[r.category].map((w) => <p key={w} className="flex gap-2"><AlertTriangle className="mt-0.5 size-4 shrink-0" />{w}</p>)}
+          </div>
+        )}
         <div className="mt-5">
           <div className="flex justify-between text-sm"><span className="text-muted-foreground">Model confidence</span><span className="font-semibold">{r.confidence}%</span></div>
           <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={r.confidence} aria-valuemin={0} aria-valuemax={100} aria-label="Model confidence">
@@ -601,6 +605,7 @@ function ResultCard({ r }: { r: ScanResult }) {
             <li key={i} className="flex gap-3 text-sm"><span className="grid size-6 shrink-0 place-items-center rounded-full bg-secondary text-xs font-bold text-secondary-foreground">{i + 1}</span><span className="pt-0.5">{s}</span></li>
           ))}
         </ol>
+        <div className="mt-5 rounded-2xl border border-border p-4 text-sm"><p className="mb-1 flex items-center gap-1.5 font-semibold"><Recycle className="size-4 text-primary" /> Reuse &amp; recycling</p><p className="text-muted-foreground">{reuseTips[r.category]}</p></div>
         <p className="mt-5 flex items-center gap-1.5 border-t border-border pt-4 text-xs text-muted-foreground"><Server className="size-3.5" /> Engine: {r.source === "python" ? "Python FastAPI service" : "Built-in vision AI"} · <CheckCircle2 className="size-3.5 text-primary" /> Saved to history</p>
       </div>
     </div>
@@ -615,14 +620,17 @@ function Dashboard({ history }: { history: Scan[] }) {
     { label: "Organic", value: s.organic, icon: Leaf, tone: "bg-bin-green" },
     { label: "Recyclable", value: s.recyclable, icon: Recycle, tone: "bg-bin-blue" },
     { label: "Hazardous", value: s.hazardous, icon: AlertTriangle, tone: "bg-bin-red" },
+    { label: "E-Waste", value: s.ewaste, icon: Cpu, tone: "bg-bin-red" },
     { label: "Residual", value: s.residual, icon: Trash2, tone: "bg-bin-black" },
+    { label: "Uncertain", value: s.uncertain, icon: HelpCircle, tone: "bg-muted-foreground" },
   ];
   const bars = cards.slice(1);
+  const days = new Set(history.map((h) => new Date(h.createdAt).toDateString())).size;
   const max = Math.max(1, ...bars.map((b) => b.value));
   return (
     <section>
       <PageHeader title="Dashboard" sub="Your sorting at a glance." />
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4 lg:grid-cols-7">
         {cards.map(({ label, value, icon: Icon, tone }, i) => (
           <div key={label} className={`glass lift min-w-0 rounded-3xl p-4 sm:p-5 ${i === 0 ? "col-span-2 sm:col-span-1" : ""}`}>
             <span className={`${tone} grid size-10 place-items-center rounded-xl text-primary-foreground`}><Icon className="size-5" /></span>
@@ -647,11 +655,50 @@ function Dashboard({ history }: { history: Scan[] }) {
           {bars.map((b) => <span key={b.label} className="min-w-0 flex-1 truncate text-center text-xs text-muted-foreground sm:text-sm">{b.label}</span>)}
         </div>
       </div>
+      <div className="mt-6 grid gap-3 sm:grid-cols-3 sm:gap-4">
+        <div className="glass rounded-3xl p-5"><p className="text-sm text-muted-foreground">Active days</p><p className="mt-1 text-2xl font-bold">{days}</p><p className="text-xs text-muted-foreground">Days you scanned at least once</p></div>
+        <div className="glass rounded-3xl p-5"><p className="text-sm text-muted-foreground">Avg. confidence</p><p className="mt-1 text-2xl font-bold">{s.total - s.uncertain ? `${s.avgConfidence}%` : "—"}</p><p className="text-xs text-muted-foreground">Confident results only</p></div>
+        <div className="glass rounded-3xl p-5"><p className="flex items-center gap-1.5 text-sm text-muted-foreground"><ShieldCheck className="size-4" /> Pilot accuracy</p><p className="mt-1 text-2xl font-bold">{s.pilotAccuracy === null ? "—" : `${s.pilotAccuracy}%`}</p><p className="text-xs text-muted-foreground">{s.verified ? `${s.verifiedCorrect} of ${s.verified} scans you checked were right` : "Open a scan in History and mark the real category"}</p></div>
+      </div>
     </section>
   );
 }
 
-function ScanDetail({ scan, onClose }: { scan: Scan | null; onClose: () => void }) {
+const VERIFY_OPTS: { id: VerifiedCategory; label: string }[] = [
+  { id: "organic", label: "Organic" }, { id: "recyclable", label: "Recyclable" }, { id: "hazardous", label: "Hazardous" },
+  { id: "ewaste", label: "E-Waste" }, { id: "residual", label: "Residual" }, { id: "unsure", label: "Not sure" },
+];
+
+function PilotCheck({ scan, onVerified }: { scan: Scan; onVerified: (s: Scan) => void }) {
+  const [choice, setChoice] = useState<VerifiedCategory | null>(scan.verifiedCategory);
+  const [note, setNote] = useState(scan.feedback ?? "");
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    if (!choice) return;
+    setBusy(true);
+    const { error } = await supabase.from("scans").update({ verified_category: choice, feedback: note.trim() || null, verified_at: new Date().toISOString() }).eq("id", scan.id);
+    setBusy(false);
+    if (error) { toast.error("Could not save your check."); return; }
+    onVerified({ ...scan, verifiedCategory: choice, feedback: note.trim() || null });
+    toast.success("Pilot check saved.");
+  };
+  return (
+    <div className="mx-6 mb-4 rounded-2xl border border-border p-4">
+      <p className="font-semibold">Pilot check: what is it really?</p>
+      <p className="text-xs text-muted-foreground">Your answer is used only to measure real-world accuracy on your dashboard.</p>
+      <div className="mt-3 flex flex-wrap gap-2" role="radiogroup" aria-label="Actual category">
+        {VERIFY_OPTS.map((o) => (
+          <Button key={o.id} type="button" size="sm" variant={choice === o.id ? "default" : "outline"} role="radio" aria-checked={choice === o.id} onClick={() => setChoice(o.id)}>{o.label}</Button>
+        ))}
+      </div>
+      <Label htmlFor="pilot-note" className="mt-3 block text-xs">Feedback (optional)</Label>
+      <Input id="pilot-note" maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. it was a chip packet, not paper" className="mt-1" />
+      <Button type="button" size="sm" className="mt-3" disabled={!choice || busy} onClick={save}>{busy ? <Loader2 className="size-4 animate-spin" /> : "Save check"}</Button>
+    </div>
+  );
+}
+
+function ScanDetail({ scan, onClose, onVerified }: { scan: Scan | null; onClose: () => void; onVerified: (s: Scan) => void }) {
   return (
     <Dialog open={!!scan} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[90dvh] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-3xl p-0">
@@ -660,6 +707,7 @@ function ScanDetail({ scan, onClose }: { scan: Scan | null; onClose: () => void 
           <>
             <img src={scan.image} alt={scan.item} className="aspect-video w-full rounded-t-3xl bg-muted object-cover" />
             <div className="px-1 pb-1"><ResultCard r={scan} /></div>
+            <PilotCheck key={scan.id} scan={scan} onVerified={onVerified} />
             <p className="flex items-center gap-1 px-6 pb-5 text-xs text-muted-foreground"><Clock className="size-3" />{fmtDate(scan.createdAt)}</p>
           </>
         )}
