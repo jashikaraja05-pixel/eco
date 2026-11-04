@@ -1,10 +1,18 @@
 #!/usr/bin/env python
 """Dataset preparation for the EcoLens AI classifier.
 
-Downloads a labelled public waste dataset, maps its classes onto the app's six
+Downloads a labelled public waste dataset, maps its classes onto the app's waste
 categories, and writes a stratified image-level train/val/test split manifest.
 The split is fixed once and reused by train.py and evaluate.py so no image can
 appear in two splits (prevents data leakage).
+
+Classes are derived from the class folders that ACTUALLY contain images. A
+mapping key whose folder is missing or empty is never turned into an output
+class (a 13-key mapping over a 12-folder dataset used to create one permanently
+untrained output neuron). Category coverage is validated before anything is
+written: if the dataset cannot serve one of the app's five categories,
+preparation stops with an error naming the category and the dataset class it
+needs, unless --allow-partial explicitly opts into reduced coverage.
 
 Datasets
 --------
@@ -12,8 +20,8 @@ Datasets
    MIT License (verified in the repo's LICENSE file, Copyright (c) 2017 Gary Thung).
    2,527 images, 6 classes: cardboard, glass, metal, paper, plastic, trash.
 
-2. garbage12 + GIZ e-waste (used for the shipped model) — the 12-class set
-   below has no e-waste folder, so an "e-waste" folder is added from
+2. garbage12 + GIZ e-waste (used for the shipped model) — the 12-class Kaggle
+   set below has no e-waste folder, so an "e-waste" folder must be added from
    GIZ/E-Waste-Database on Hugging Face (CC BY 4.0, every image is e-waste).
    Run with --source dir on the merged folder.
 
@@ -26,7 +34,8 @@ Datasets
 Limitations (documented, not hidden)
 ------------------------------------
 - trashnet contains NO organic, hazardous or e-waste images: a model trained
-  only on it can genuinely predict recyclable and residual items only.
+  only on it can genuinely predict recyclable and residual items only, so it
+  requires --allow-partial (the manifest then records partial_training=true).
 - garbage12 covers biological (organic), battery (hazardous) and e-waste, but
   "hazardous" is represented by batteries alone and "uncertain" is never a
   dataset class — it is produced only by the confidence threshold.
@@ -35,7 +44,7 @@ Limitations (documented, not hidden)
 
 Usage
 -----
-    python backend/prepare_dataset.py --source hf --data-dir backend/data
+    python backend/prepare_dataset.py --source hf --data-dir backend/data --allow-partial
     python backend/prepare_dataset.py --source dir --dir /path/to/class_folders
     python backend/prepare_dataset.py --kaggle --data-dir backend/data
 """
@@ -44,11 +53,23 @@ from __future__ import annotations
 import argparse
 import json
 import random
-import shutil
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 
 from common import CATEGORIES
+from manifest import (
+    APP_CATEGORIES,
+    DEFAULT_SEED,
+    IMAGE_EXT,
+    MIN_IMAGES_PER_CLASS,
+    TRAIN_FRAC,
+    VAL_FRAC,
+    DatasetCoverageError,
+    ManifestError,
+    check_category_coverage,
+    split_counts,
+    validate_manifest,
+)
 
 # dataset class name -> app category
 TRASHNET_MAPPING = {
@@ -59,6 +80,11 @@ TRASHNET_MAPPING = {
     "plastic": "recyclable",
     "trash": "residual",
 }
+# NOTE: "e-waste" is a real requirement, not a folder that always exists in the
+# 12-class Kaggle archive. If the folder is absent it must NOT become a class:
+# build_split() only keeps folders that contain images, and coverage validation
+# then fails (or requires --allow-partial) instead of silently training a
+# dead output neuron.
 GARBAGE12_MAPPING = {
     "battery": "hazardous",
     "biological": "organic",
@@ -75,9 +101,7 @@ GARBAGE12_MAPPING = {
     "trash": "residual",
 }
 
-TRAIN_FRAC, VAL_FRAC = 0.70, 0.15  # test gets the remainder
-SEED = 42
-IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp"}
+SEED = DEFAULT_SEED
 
 
 def export_from_hf(out_dir: Path) -> Path:
@@ -100,9 +124,19 @@ def export_from_hf(out_dir: Path) -> Path:
     return root
 
 
+def _image_files(class_dir: Path) -> list[Path]:
+    """Usable image files in a class folder (non-empty, known extension)."""
+    return sorted(
+        p for p in class_dir.iterdir()
+        if p.is_file() and p.suffix.lower() in IMAGE_EXT and p.stat().st_size > 0
+    )
+
+
 def class_folders(dir: Path) -> tuple[Path, dict[str, str]]:
-    """Reads a directory tree of class folders; asks which mapping applies."""
-    classes = sorted(p.name for p in dir.iterdir() if p.is_dir() and any(p.iterdir()))
+    """Reads a directory tree of class folders; picks the mapping that applies."""
+    classes = sorted(p.name for p in dir.iterdir() if p.is_dir() and _image_files(p))
+    if not classes:
+        raise SystemExit(f"No class folders with usable images under {dir}")
     if set(classes) <= set(TRASHNET_MAPPING):
         return dir, TRASHNET_MAPPING
     if set(classes) <= set(GARBAGE12_MAPPING):
@@ -129,38 +163,102 @@ def download_from_kaggle(out_dir: Path) -> Path:
     return nested[0]
 
 
-def build_split(images_dir: Path, mapping: dict[str, str], out_dir: Path, max_per_class: int = 0) -> Path:
-    rng = random.Random(SEED)
-    by_class: defaultdict[str, list[Path]] = defaultdict(list)
+def build_split(images_dir: Path, mapping: dict[str, str], out_dir: Path, max_per_class: int = 0,
+                allow_partial: bool = False, seed: int = SEED) -> Path:
+    """Writes split.json built only from class folders that contain images.
+
+    Raises SystemExit with an actionable message (never a silent partial model)
+    when a class is too small, or when a required app category has no images and
+    ``allow_partial`` was not requested.
+    """
+    rng = random.Random(seed)
+    by_class: dict[str, list[Path]] = {}
+    skipped: dict[str, str] = {}
+
     for class_dir in sorted(images_dir.iterdir()):
         if not class_dir.is_dir() or class_dir.name not in mapping:
             continue
-        files = sorted(p for p in class_dir.iterdir() if p.suffix.lower() in IMAGE_EXT)
+        files = _image_files(class_dir)
+        if not files:
+            skipped[class_dir.name] = "no usable image files"
+            continue
         rng.shuffle(files)
         if max_per_class > 0:
             files = files[:max_per_class]  # seeded cap to limit class imbalance (e.g. 5k clothes)
+        if len(files) < MIN_IMAGES_PER_CLASS:
+            raise SystemExit(
+                f"Dataset class '{class_dir.name}' has only {len(files)} usable image(s) in {class_dir}; "
+                f"at least {MIN_IMAGES_PER_CLASS} are needed to build train/val/test splits. "
+                "Add more images or remove that class folder."
+            )
         by_class[class_dir.name] = files
 
     if not by_class:
         raise SystemExit(f"No usable class folders with images under {images_dir}")
 
+    classes = sorted(by_class)
+    class_to_category = {c: mapping[c] for c in classes}
+
+    # Coverage is checked BEFORE writing anything: a class that is mapped but
+    # absent must never be reported as supported.
+    try:
+        missing_categories = check_category_coverage(
+            class_to_category, mapping_tables=(mapping,), allow_partial=allow_partial
+        )
+    except DatasetCoverageError as e:
+        message = str(e)
+        if skipped:
+            message += f"\nSkipped folders (no usable images): {skipped}"
+        message += (
+            f"\nDataset folder: {images_dir}\nDetected class folders with images: {classes}"
+        )
+        raise SystemExit(message) from e
+
     split: dict[str, list[dict[str, str]]] = {"train": [], "val": [], "test": []}
-    for class_name, files in sorted(by_class.items()):
-        n = len(files)
-        n_train = round(n * TRAIN_FRAC)
-        n_val = round(n * VAL_FRAC)
-        bounds = {"train": files[:n_train], "val": files[n_train:n_train + n_val], "test": files[n_train + n_val:]}
+    for class_name in classes:
+        files = by_class[class_name]
+        try:
+            n_train, n_val, _ = split_counts(len(files))
+        except ManifestError as e:
+            raise SystemExit(f"Dataset class '{class_name}': {e}") from e
+        bounds = {
+            "train": files[:n_train],
+            "val": files[n_train:n_train + n_val],
+            "test": files[n_train + n_val:],
+        }
         for subset, subset_files in bounds.items():
             for p in subset_files:
-                split[subset].append({"path": str(p), "dataset_class": class_name, "category": mapping[class_name]})
+                split[subset].append(
+                    {"path": str(p), "dataset_class": class_name, "category": class_to_category[class_name]}
+                )
 
+    counts = {
+        subset: {
+            c: sum(1 for r in rows if r["dataset_class"] == c)
+            for c in classes
+            if any(r["dataset_class"] == c for r in rows)
+        }
+        for subset, rows in split.items()
+    }
     manifest = {
         "dataset_dir": str(images_dir),
-        "class_to_category": mapping,
-        "classes": sorted(mapping),
-        "seed": SEED,
+        "dataset_name": images_dir.name,
+        "class_to_category": class_to_category,
+        "classes": classes,
+        "num_classes": len(classes),
+        "idx_to_class": {i: c for i, c in enumerate(classes)},
+        "seed": int(seed),
         "max_per_class": max_per_class,
-        "counts": {s: {c: sum(1 for r in rows if r["dataset_class"] == c) for c in sorted(mapping)} for s, rows in split.items()},
+        "train_frac": TRAIN_FRAC,
+        "val_frac": VAL_FRAC,
+        "skipped_folders": skipped,
+        "coverage": {
+            "app_categories": APP_CATEGORIES,
+            "present": sorted(set(class_to_category.values())),
+            "missing": {c: v for c, v in sorted(missing_categories.items())},
+            "partial_training": bool(missing_categories),
+        },
+        "counts": counts,
         "sizes": {s: len(rows) for s, rows in split.items()},
         **split,  # the actual per-image rows used by train.py / evaluate.py
         "licences": {
@@ -169,14 +267,32 @@ def build_split(images_dir: Path, mapping: dict[str, str], out_dir: Path, max_pe
             "giz_ewaste": "CC BY 4.0 — huggingface.co/datasets/GIZ/E-Waste-Database (all images are e-waste)",
         },
     }
+
+    # Final contract gate: the manifest is written only if it is trainable and
+    # internally consistent (num_classes == classes, no empty output class,
+    # no split leakage, every class mapped to a category the app can serve).
+    try:
+        report = validate_manifest(manifest, mapping_tables=(mapping,), allow_partial=allow_partial)
+    except ManifestError as e:
+        raise SystemExit(f"Refusing to write an invalid split manifest: {e}") from e
+    manifest["coverage"]["partial_training"] = report["partial_training"]
+    manifest["sizes"] = report["sizes"]
+
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / "split.json"
     path.write_text(json.dumps(manifest, indent=2))
     print(f"Split written to {path}: train={manifest['sizes']['train']} "
           f"val={manifest['sizes']['val']} test={manifest['sizes']['test']} "
-          f"classes={sorted(mapping)}")
-    for subset, counts in manifest["counts"].items():
-        print(f"  {subset}: {counts}")
+          f"classes={classes} (num_classes={manifest['num_classes']})")
+    for subset, subset_counts in manifest["counts"].items():
+        print(f"  {subset}: {subset_counts}")
+    if skipped:
+        print(f"Skipped folders without usable images (not output classes): {skipped}")
+    if manifest["coverage"]["missing"]:
+        print("WARNING: partial training — these app categories cannot be predicted locally: "
+              f"{sorted(manifest['coverage']['missing'])}")
+        for category, needed in manifest["coverage"]["missing"].items():
+            print(f"  - '{category}' needs dataset class folder(s): {needed or 'any class mapped to it'}")
     return path
 
 
@@ -189,6 +305,12 @@ def main() -> None:
     ap.add_argument("--data-dir", type=Path, default=Path(__file__).parent / "data")
     ap.add_argument("--out-dir", type=Path, default=Path(__file__).parent / "data")
     ap.add_argument("--max-per-class", type=int, default=0, help="seeded cap per dataset class (0 = no cap)")
+    ap.add_argument("--seed", type=int, default=SEED, help="random seed for the split and training")
+    ap.add_argument("--allow-partial", action="store_true",
+                    help="explicitly allow training only the categories the dataset covers "
+                         "(the manifest records partial_training=true; /health and the app "
+                         "then report the reduced coverage). Without this flag a missing "
+                         "category aborts preparation with an error.")
     args = ap.parse_args()
 
     if args.source == "hf":
@@ -202,11 +324,12 @@ def main() -> None:
             raise SystemExit("--source dir requires --dir /path/to/class_folders")
         images_dir, mapping = class_folders(args.dir)
 
-    missing = set(CATEGORIES) - {"uncertain"} - set(mapping.values())
-    if missing:
-        print(f"WARNING: this dataset cannot train {sorted(missing)} — those categories "
-              f"will never be predicted locally. See the Limitations section in backend/README.md.")
-    build_split(images_dir, mapping, args.out_dir, args.max_per_class)
+    mapped_missing = [c for c in CATEGORIES if c != "uncertain" and c not in set(mapping.values())]
+    if mapped_missing:
+        print(f"NOTE: mapping '{args.source}' never maps {mapped_missing}; those categories stay unreachable "
+              "unless --allow-partial is used.")
+    build_split(images_dir, mapping, args.out_dir, args.max_per_class,
+                allow_partial=args.allow_partial, seed=args.seed)
 
 
 if __name__ == "__main__":
