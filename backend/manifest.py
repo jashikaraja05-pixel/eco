@@ -251,10 +251,11 @@ def validate_manifest(manifest: Mapping[str, Any], *,
                     f"Manifest 'sizes.{subset}'={declared_sizes[subset]} but the split has {sizes[subset]} rows."
                 )
 
+    # check_category_coverage raises unless partial training was allowed, so a
+    # returned non-empty mapping means this run really trains on reduced
+    # coverage — and that fact must be recorded, not inferred from a stale flag.
     missing_categories = check_category_coverage(class_to_category, mapping_tables, allow_partial=allow_partial)
-    partial_training = bool(manifest.get("partial_training", False))
-    if partial_training and not missing_categories:
-        partial_training = False  # nothing is actually missing; do not claim partial training
+    partial_training = bool(missing_categories)
 
     return {
         "num_classes": len(classes),
