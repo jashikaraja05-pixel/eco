@@ -12,7 +12,7 @@ export const classifyWaste = createServerFn({ method: "POST" })
   .handler(async ({ data, context }): Promise<Scan> => {
     let result: ScanResult;
     try {
-      result = await classifyImage(data.image, { pythonUrl: process.env["PYTHON_CLASSIFIER_URL"], lovableApiKey: process.env["LOVABLE_API_KEY"] });
+      result = await classifyImage(data.image, { pythonUrl: process.env["PYTHON_CLASSIFIER_URL"], pythonApiKey: process.env["PYTHON_CLASSIFIER_API_KEY"], lovableApiKey: process.env["LOVABLE_API_KEY"] });
     } catch (e) {
       console.error("classification failed", e);
       throw new Error(e instanceof z.ZodError ? "The AI returned an invalid answer. Please try again." : (e as Error).message);
