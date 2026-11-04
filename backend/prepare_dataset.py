@@ -12,7 +12,12 @@ Datasets
    MIT License (verified in the repo's LICENSE file, Copyright (c) 2017 Gary Thung).
    2,527 images, 6 classes: cardboard, glass, metal, paper, plastic, trash.
 
-2. garbage12 — Kaggle "Garbage Classification (12 classes)" by mostafaabla,
+2. garbage12 + GIZ e-waste (used for the shipped model) — the 12-class set
+   below has no e-waste folder, so an "e-waste" folder is added from
+   GIZ/E-Waste-Database on Hugging Face (CC BY 4.0, every image is e-waste).
+   Run with --source dir on the merged folder.
+
+   garbage12 — Kaggle "Garbage Classification (12 classes)" by mostafaabla,
    https://www.kaggle.com/datasets/mostafaabla/garbage-classification
    15,150 images, 12 classes. Verify the licence on the Kaggle page before any
    redistribution; use `--kaggle` after `pip install kaggle` and accepting the
@@ -124,7 +129,7 @@ def download_from_kaggle(out_dir: Path) -> Path:
     return nested[0]
 
 
-def build_split(images_dir: Path, mapping: dict[str, str], out_dir: Path) -> Path:
+def build_split(images_dir: Path, mapping: dict[str, str], out_dir: Path, max_per_class: int = 0) -> Path:
     rng = random.Random(SEED)
     by_class: defaultdict[str, list[Path]] = defaultdict(list)
     for class_dir in sorted(images_dir.iterdir()):
@@ -132,6 +137,8 @@ def build_split(images_dir: Path, mapping: dict[str, str], out_dir: Path) -> Pat
             continue
         files = sorted(p for p in class_dir.iterdir() if p.suffix.lower() in IMAGE_EXT)
         rng.shuffle(files)
+        if max_per_class > 0:
+            files = files[:max_per_class]  # seeded cap to limit class imbalance (e.g. 5k clothes)
         by_class[class_dir.name] = files
 
     if not by_class:
@@ -152,12 +159,14 @@ def build_split(images_dir: Path, mapping: dict[str, str], out_dir: Path) -> Pat
         "class_to_category": mapping,
         "classes": sorted(mapping),
         "seed": SEED,
+        "max_per_class": max_per_class,
         "counts": {s: {c: sum(1 for r in rows if r["dataset_class"] == c) for c in sorted(mapping)} for s, rows in split.items()},
         "sizes": {s: len(rows) for s, rows in split.items()},
         **split,  # the actual per-image rows used by train.py / evaluate.py
         "licences": {
             "trashnet": "MIT (c) 2017 Gary Thung — github.com/garythung/trashnet/LICENSE",
-            "garbage12": "See kaggle.com/datasets/mostafaabla/garbage-classification before redistribution",
+            "garbage12": "Kaggle mostafaabla/garbage-classification (12 classes, NO e-waste class) — check licence on Kaggle before redistribution",
+            "giz_ewaste": "CC BY 4.0 — huggingface.co/datasets/GIZ/E-Waste-Database (all images are e-waste)",
         },
     }
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -179,6 +188,7 @@ def main() -> None:
     ap.add_argument("--dir", type=Path, help="class-folder root when --source dir")
     ap.add_argument("--data-dir", type=Path, default=Path(__file__).parent / "data")
     ap.add_argument("--out-dir", type=Path, default=Path(__file__).parent / "data")
+    ap.add_argument("--max-per-class", type=int, default=0, help="seeded cap per dataset class (0 = no cap)")
     args = ap.parse_args()
 
     if args.source == "hf":
@@ -196,7 +206,7 @@ def main() -> None:
     if missing:
         print(f"WARNING: this dataset cannot train {sorted(missing)} — those categories "
               f"will never be predicted locally. See the Limitations section in backend/README.md.")
-    build_split(images_dir, mapping, args.out_dir)
+    build_split(images_dir, mapping, args.out_dir, args.max_per_class)
 
 
 if __name__ == "__main__":
