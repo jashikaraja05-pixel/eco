@@ -310,24 +310,46 @@ def build_split(images_dir: Path, mapping: dict[str, str], out_dir: Path, max_pe
     rng = random.Random(seed)
     by_class: dict[str, list[Path]] = {}
     skipped: dict[str, str] = {}
+    source_folder: dict[str, str] = {}
 
-    for class_dir in sorted(images_dir.iterdir()):
-        if not class_dir.is_dir() or class_dir.name not in mapping:
+    # Folders are resolved through the declared normalization/aliases, so a
+    # mixed tree (TrashNet's "glass" + garbage12's brown-/green-/white-glass)
+    # yields four distinct output classes that all stay in "recyclable".
+    folder_by_class, unrecognized, ambiguous = resolve_folders(images_dir, mapping)
+    if ambiguous:
+        raise SystemExit(
+            f"Ambiguous dataset folders under {images_dir}: {'; '.join(ambiguous)}. "
+            "Keep exactly one folder per model class so no two sources are silently merged."
+        )
+    for folder_name in unrecognized:
+        skipped[folder_name] = "folder name is not in the mapping/alias table (not classified)"
+
+    # Folders that are real mapping keys but hold no usable images are reported
+    # rather than becoming an empty (untrained) output class.
+    for class_name in mapping:
+        if class_name in folder_by_class:
             continue
+        folder_path = images_dir / class_name
+        if folder_path.is_dir():
+            skipped[class_name] = "no usable image files"
+
+    for class_name in sorted(folder_by_class):
+        class_dir = folder_by_class[class_name]
         files = _image_files(class_dir)
         if not files:
-            skipped[class_dir.name] = "no usable image files"
+            skipped[class_name] = "no usable image files"
             continue
         rng.shuffle(files)
         if max_per_class > 0:
             files = files[:max_per_class]  # seeded cap to limit class imbalance (e.g. 5k clothes)
         if len(files) < MIN_IMAGES_PER_CLASS:
             raise SystemExit(
-                f"Dataset class '{class_dir.name}' has only {len(files)} usable image(s) in {class_dir}; "
-                f"at least {MIN_IMAGES_PER_CLASS} are needed to build train/val/test splits. "
-                "Add more images or remove that class folder."
+                f"Dataset class '{class_name}' (folder '{class_dir.name}') has only {len(files)} "
+                f"usable image(s) in {class_dir}; at least {MIN_IMAGES_PER_CLASS} are needed to build "
+                "train/val/test splits. Add more images or remove that class folder."
             )
-        by_class[class_dir.name] = files
+        by_class[class_name] = files
+        source_folder[class_name] = class_dir.name
 
     if not by_class:
         raise SystemExit(f"No usable class folders with images under {images_dir}")
