@@ -258,6 +258,7 @@ def class_folders(dir: Path) -> tuple[Path, dict[str, str]]:
 
     # Most specific table first: a pure TrashNet tree keeps TrashNet's coverage
     # hints, while a mixed tree falls through to MERGED_MAPPING.
+    unresolved: list[str] = sorted(folders)
     for table_name in ("trashnet", "garbage12", "merged"):
         mapping = MAPPING_TABLES[table_name]
         folder_by_class, unrecognized, ambiguous = resolve_folders(dir, mapping)
@@ -273,8 +274,8 @@ def class_folders(dir: Path) -> tuple[Path, dict[str, str]]:
                 f"-> {sorted(folder_by_class)}"
             )
             return dir, mapping
+        unresolved = unrecognized
 
-    folder_by_class, unrecognized, _ = resolve_folders(dir, MERGED_MAPPING)
     raise SystemExit(
         f"Unrecognised dataset folder(s) under {dir}: {unrecognized}. They are not mapped to any "
         "waste category and were not silently classified. Recognised class names are "
