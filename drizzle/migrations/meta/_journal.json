@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1793772336682,
+      "tag": "0000_create_scans_with_rls",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793775812435,
+      "tag": "0001_create_scans",
+      "breakpoints": true
+    }
+  ]
+}
