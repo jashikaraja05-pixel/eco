@@ -28,6 +28,48 @@ random, fabricated or hardcoded.
 recyclable, trash → residual. Garbage12 additionally maps biological → organic,
 battery → hazardous, e-waste → ewaste, clothes/shoes/trash → residual.
 
+## Dataset / model contract (`manifest.py`)
+
+`prepare_dataset.py` and `train.py` share one torch-free contract module,
+`backend/manifest.py`, so the checkpoint's output head can never disagree with the
+dataset. Before anything is written or trained:
+
+- **Output classes come only from class folders that contain usable images**
+  (known extension, non-empty file, at least `MIN_IMAGES_PER_CLASS = 9` so all
+  three splits can be non-empty). A mapping key whose folder is missing or empty
+  — e.g. `"e-waste"` in `GARBAGE12_MAPPING` when the Kaggle archive has 12
+  folders — is **not** turned into a class. This was the untrained-output-neuron
+  bug and is now a regression test.
+- **Category coverage is validated first.** The five app categories
+  (`organic, recyclable, hazardous, ewaste, residual`; `uncertain` is only the
+  confidence threshold) must each be reachable from at least one output class.
+  If a category is missing, preparation/`--allow-partial`-less training aborts
+  with an error naming the category **and** the dataset class folder required for
+  it (e.g. `category 'organic' ... required dataset class: 'biological'`) and
+  nothing is written.
+- **Partial training is explicit only.** `--allow-partial` (prepare) and
+  `--allow-partial` (train) accept reduced coverage; the manifest records
+  `coverage.partial_training = true` plus `coverage.missing`, the model config
+  records `missing_categories`/`partial_training`, and `/health` reports it. A
+  full-coverage dataset is never marked partial, and a manifest that declares
+  partial training is rejected by `train.py` unless `--allow-partial` restates it.
+- **The training contract is enforced before the first forward pass:**
+  `num_classes == len(classes) == number of output neurons`,
+  `idx_to_class`/`class_to_category` are consistent with `classes`, no output
+  class is empty, every class appears in the splits, and no image path appears in
+  two splits (`Split leakage: ...`).
+
+## Reproducibility
+
+Both scripts take `--seed` (default 42). `seeding.py` seeds Python, NumPy and
+PyTorch (CPU + CUDA), requests deterministic algorithms, and provides a seeded
+`DataLoader` generator. The split shuffles with `random.Random(seed)`, and the
+seed plus every hyperparameter (epochs, batch, lr, weight decay, optimizer,
+scheduler, patience, image size) and the achieved split sizes are written to
+`models/config.json` and `models/training_summary.json` — a run is reproducible
+from its own artefacts. `training_summary.json` keeps `test_metrics` as
+`"PENDING"` until `evaluate.py` runs.
+
 **Limitations (honest scope):**
 - TrashNet contains no organic, hazardous or e-waste images — a TrashNet-only
   model can never genuinely predict those categories. Use `--source kaggle`
