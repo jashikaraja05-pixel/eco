@@ -435,11 +435,7 @@ def build_split(images_dir: Path, mapping: dict[str, str], out_dir: Path, max_pe
         "counts": counts,
         "sizes": {s: len(rows) for s, rows in split.items()},
         **split,  # the actual per-image rows used by train.py / evaluate.py
-        "licences": {
-            "trashnet": "MIT (c) 2017 Gary Thung — github.com/garythung/trashnet/LICENSE",
-            "garbage12": "Kaggle mostafaabla/garbage-classification (12 classes, NO e-waste class) — check licence on Kaggle before redistribution",
-            "giz_ewaste": "CC BY 4.0 — huggingface.co/datasets/GIZ/E-Waste-Database (all images are e-waste)",
-        },
+        "licences": dataset_licences(folder_by_class, mapping),
     }
 
     # Final contract gate: the manifest is written only if it is trainable and
