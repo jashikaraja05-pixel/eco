@@ -25,6 +25,14 @@ Datasets
    GIZ/E-Waste-Database on Hugging Face (CC BY 4.0, every image is e-waste).
    Run with --source dir on the merged folder.
 
+   A directory may also mix TrashNet and garbage12 folder names: MERGED_MAPPING
+   is the union of both tables, so a merged tree that still contains TrashNet's
+   single "glass" folder (next to brown-/green-/white-glass) is recognised and
+   "glass" maps to the same "recyclable" category. Folder names are matched
+   through a declared normalization (case and separator insensitive, e.g.
+   "E-Waste" -> "e-waste"), never by guessing: a folder whose normalized name is
+   not a mapping key is left out of the output classes and reported.
+
    garbage12 — Kaggle "Garbage Classification (12 classes)" by mostafaabla,
    https://www.kaggle.com/datasets/mostafaabla/garbage-classification
    15,150 images, 12 classes. Verify the licence on the Kaggle page before any
