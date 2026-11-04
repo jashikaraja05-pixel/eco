@@ -81,8 +81,10 @@ from its own artefacts. `training_summary.json` keeps `test_metrics` as
 
 **Limitations (honest scope):**
 - TrashNet contains no organic, hazardous or e-waste images — a TrashNet-only
-  model can never genuinely predict those categories. Use `--source kaggle`
-  for fuller coverage.
+  model can never genuinely predict those categories. `--source kaggle`
+  (garbage12) adds organic and hazardous only; the e-waste category additionally
+  needs `e-waste/` images from the GIZ source, and no category is "covered"
+  until a preparation run has actually seen those folders.
 - "Uncertain" is never a dataset class; it is produced solely by the 55%
   confidence threshold (`UNCERTAIN_THRESHOLD`, mirrored in
   `src/lib/scan-schema.ts`).
