@@ -25,7 +25,15 @@ from manifest import (
     split_counts,
     validate_manifest,
 )
-from prepare_dataset import GARBAGE12_MAPPING, TRASHNET_MAPPING, build_split
+from prepare_dataset import (
+    GARBAGE12_MAPPING,
+    MERGED_MAPPING,
+    TRASHNET_MAPPING,
+    build_split,
+    class_folders,
+    normalize_class_name,
+    resolve_folders,
+)
 from seeding import seed_everything
 
 FIVE_CATEGORY_MAPPING = {
