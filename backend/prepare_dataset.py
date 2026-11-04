@@ -216,18 +216,70 @@ def _image_files(class_dir: Path) -> list[Path]:
     )
 
 
+def resolve_folders(dir: Path, mapping: dict[str, str]) -> tuple[dict[str, Path], list[str], list[str]]:
+    """Maps real folder names to canonical dataset classes for one mapping table.
+
+    Returns ``(folder_by_class, unrecognized, ambiguous)``:
+    * ``folder_by_class`` — canonical class -> the folder that provides it;
+    * ``unrecognized`` — folders with images whose normalized name is not a key
+      or alias of this table. They are NEVER assigned a category;
+    * ``ambiguous`` — messages for two folders that resolve to the same class
+      (e.g. ``glass`` and ``Glass``), which would silently merge two sources.
+    """
+    index = build_class_index(mapping)
+    folder_by_class: dict[str, Path] = {}
+    unrecognized: list[str] = []
+    ambiguous: list[str] = []
+    for folder in sorted(p for p in dir.iterdir() if p.is_dir() and _image_files(p)):
+        canonical = index.get(normalize_class_name(folder.name))
+        if canonical is None:
+            unrecognized.append(folder.name)
+            continue
+        if canonical in folder_by_class:
+            ambiguous.append(
+                f"'{folder_by_class[canonical].name}' and '{folder.name}' both resolve to class '{canonical}'"
+            )
+            continue
+        folder_by_class[canonical] = folder
+    return folder_by_class, unrecognized, ambiguous
+
+
 def class_folders(dir: Path) -> tuple[Path, dict[str, str]]:
-    """Reads a directory tree of class folders; picks the mapping that applies."""
-    classes = sorted(p.name for p in dir.iterdir() if p.is_dir() and _image_files(p))
-    if not classes:
+    """Reads a directory tree of class folders; picks the mapping that applies.
+
+    A folder name is accepted when it is a mapping key, a declared alias, or the
+    same name with different case/separators. Nothing is classified by guesswork:
+    if no table covers every folder, preparation stops and names the folders it
+    could not resolve.
+    """
+    folders = sorted(p.name for p in dir.iterdir() if p.is_dir() and _image_files(p))
+    if not folders:
         raise SystemExit(f"No class folders with usable images under {dir}")
-    if set(classes) <= set(TRASHNET_MAPPING):
-        return dir, TRASHNET_MAPPING
-    if set(classes) <= set(GARBAGE12_MAPPING):
-        return dir, GARBAGE12_MAPPING
+
+    # Most specific table first: a pure TrashNet tree keeps TrashNet's coverage
+    # hints, while a mixed tree falls through to MERGED_MAPPING.
+    for table_name in ("trashnet", "garbage12", "merged"):
+        mapping = MAPPING_TABLES[table_name]
+        folder_by_class, unrecognized, ambiguous = resolve_folders(dir, mapping)
+        if ambiguous:
+            raise SystemExit(
+                "Ambiguous dataset folders for mapping "
+                f"'{table_name}': {'; '.join(ambiguous)}. Keep exactly one folder per class "
+                "(rename or remove the duplicate) so no two sources are silently merged."
+            )
+        if not unrecognized:
+            print(
+                f"Using mapping '{table_name}': {len(folder_by_class)} class folder(s) recognised "
+                f"-> {sorted(folder_by_class)}"
+            )
+            return dir, mapping
+
+    folder_by_class, unrecognized, _ = resolve_folders(dir, MERGED_MAPPING)
     raise SystemExit(
-        f"Classes {classes} match neither TRASHNET_MAPPING nor GARBAGE12_MAPPING. "
-        "Edit the MAPPING tables in prepare_dataset.py for your dataset."
+        f"Unrecognised dataset folder(s) under {dir}: {unrecognized}. They are not mapped to any "
+        "waste category and were not silently classified. Recognised class names are "
+        f"{sorted(MERGED_MAPPING)} (plus declared aliases). Rename the folders to match a mapping "
+        "key or add an alias to CLASS_ALIASES in prepare_dataset.py."
     )
 
 
