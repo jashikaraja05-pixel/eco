@@ -60,6 +60,23 @@ DISPOSAL_STEPS = {
 }
 
 
+# Shown with every result of that category. Never advise opening devices/batteries.
+SAFETY_WARNINGS = {
+    "hazardous": [
+        "Do not open, puncture, crush or burn batteries, aerosol cans or chemical containers.",
+        "Keep away from children and food; tape battery terminals before drop-off.",
+    ],
+    "ewaste": [
+        "Do not dismantle the device or remove its battery yourself.",
+        "Swollen or damaged batteries can catch fire — store them away from heat.",
+    ],
+    "organic": ["Remove stickers, rubber bands and plastic before composting."],
+    "recyclable": ["Broken glass: wrap it in paper and label it before binning."],
+    "residual": [],
+    "uncertain": ["Bin colours differ between cities — confirm with your municipal corporation's guide."],
+}
+
+
 def sniff(data: bytes) -> str | None:
     """Magic-byte content check: returns the real image MIME type or None."""
     if data.startswith(b"\xff\xd8\xff"):
