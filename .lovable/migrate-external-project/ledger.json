@@ -3,35 +3,35 @@
   "capability": "code/ui (EcoLens AI app, Oceanic Teal theme)",
   "source": "code archive (ECO-LENSAI-main.zip, exported Lovable project)",
   "outcome": "migrate",
-  "status": "pending (re-migrating into this project)",
+  "status": "verified: build OK, 9/9 tests, sign-in page renders",
   "next_action": null
  },
  {
   "capability": "schema (public.scans table + owner-only RLS)",
   "source": "drizzle migration 0001 from archive",
   "outcome": "migrate",
-  "status": "pending (re-migrating into this project)",
+  "status": "applied to this project's Lovable Cloud",
   "next_action": null
  },
  {
   "capability": "email/password accounts",
   "source": "Lovable Cloud auth, email confirmation on",
   "outcome": "migrate",
-  "status": "pending (re-migrating into this project)",
+  "status": "email sign-in enabled; sign-up form reaches the server; full confirm+scan flow not exercised",
   "next_action": null
  },
  {
   "capability": "classifyWaste AI + save to history",
   "source": "Lovable AI Gateway (LOVABLE_API_KEY present)",
   "outcome": "migrate",
-  "status": "pending (re-migrating into this project)",
+  "status": "code + AI key in place; live scan not exercised in this project",
   "next_action": null
  },
  {
   "capability": "data privacy (RLS)",
   "source": "owner-only policies",
   "outcome": "migrate",
-  "status": "pending (re-migrating into this project)",
+  "status": "owner-only policies applied; not re-tested",
   "next_action": null
  },
  {
