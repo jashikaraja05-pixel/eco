@@ -19,14 +19,23 @@ random, fabricated or hardcoded.
 
 ## Dataset
 
-| Dataset | Source | Licence | Classes | Coverage |
+No dataset is bundled with this repository and no checkpoint is committed. The
+licence column is the licence each source **declares**; it is not a
+redistribution grant. See `ATTRIBUTION.md` at the repository root for the full
+record and the open permission questions.
+
+| Dataset | Source | Declared licence | Classes | Coverage |
 |---|---|---|---|---|
 | TrashNet (default) | github.com/garythung/trashnet | MIT (c) 2017 Gary Thung — verified in repo LICENSE | cardboard, glass, metal, paper, plastic, trash (2,527 images) | recyclable, residual only |
-| Garbage Classification 12 classes | kaggle.com/datasets/mostafaabla/garbage-classification | check the Kaggle page before redistribution | 12 classes, 15,150 images | adds biological (organic), battery (hazardous), e-waste |
+| Garbage Classification 12 classes | kaggle.com/datasets/mostafaabla/garbage-classification | ODbL 1.0 — Database: Open Database; Contents: © Original Authors | battery, biological, brown-glass, cardboard, clothes, green-glass, metal, paper, plastic, shoes, trash, white-glass (15,150 images) | adds biological (organic) and battery (hazardous) only |
+| GIZ e-waste dataset (YOLO labels) | huggingface.co/datasets/GIZ/e-waste-dataset-yolo-labels | CC BY 4.0 (declared metadata; attribution wording and third-party image rights unconfirmed) | box-labelled object classes | the only e-waste source |
 
 **Category mapping** (`prepare_dataset.py`): TrashNet glass/paper/cardboard/plastic/metal →
 recyclable, trash → residual. Garbage12 additionally maps biological → organic,
-battery → hazardous, e-waste → ewaste, clothes/shoes/trash → residual.
+battery → hazardous, clothes/shoes/trash → residual. Garbage12 has **no**
+e-waste folder, so `e-waste` (→ ewaste) is supplied only by the GIZ source. The
+`licences` block in `split.json` records only the sources whose folders actually
+contributed a class — an input that was not present is never claimed.
 
 ## Dataset / model contract (`manifest.py`)
 
